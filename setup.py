@@ -17,34 +17,6 @@
 
 import setuptools
 
-with open("README.md", "r") as fh:
-    long_description = fh.read()
-
-setuptools.setup(
-    name="ops-lib-pgsql",
-    version="1.0.1",
-    author="PostgreSQL Charmers",
-    author_email="postgresql-charmers@lists.launchpad.net",
-    description="PostgreSQL database relation for Juju Operator Framework Charms",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://github.com/canonical/ops-lib-pgsql",
-    packages=["pgsql", "pgsql.opslib.pgsql"],
-    classifiers=[
-        "Development Status :: 5 - Production/Stable",
-        "Programming Language :: Python :: 3 :: Only",
-        "Programming Language :: Python :: 3.6",
-        "Programming Language :: Python :: 3.7",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
-        "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
-        "Operating System :: OS Independent",
-    ],
-    keywords="juju charm opslib postgres postgresql pgsql",
-    project_urls={
-        "Juju": "https://juju.is/",
-        "Juju Operator Framework": "https://pypi.org/project/ops/",
-    },
-    python_requires=">=3.6",
-    install_requires=["ops >= 0.8.0", "PyYAML"],
-)
+# Settings in setup.cfg per
+# https://setuptools.readthedocs.io/en/latest/userguide/declarative_config.html
+setuptools.setup()

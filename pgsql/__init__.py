@@ -26,3 +26,5 @@ LIBNAME = "pgsql"
 LIBAUTHOR = "postgresql-charmers@lists.launchpad.net"
 LIBAPI = 1
 LIBPATCH = 0  # Unused? Pull latest version from the stable branch or suffer needlessly
+
+VERSION = "1.0.1"

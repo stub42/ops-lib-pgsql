@@ -15,8 +15,6 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/>.
 
-import os.path
-import re
 import unittest
 
 import ops.lib
@@ -43,17 +41,10 @@ class TestImports(unittest.TestCase):
     def test_protocol_version(self):
         import pgsql
 
-        self.assertEqual(
-            pgsql.LIBAPI,
-            self.VERSION,
-            "LIBAPI in __init__.py does not match test version, got {pgsql.LIBAPI}, want {self.VERSION}",
-        )
+        self.assertEqual(pgsql.LIBAPI, self.VERSION, "LIBAPI in __init__.py does not match test version")
 
-    def test_setup_version(self):
-        with open(os.path.join(os.path.dirname(__file__), os.pardir, "setup.py"), "r") as s:
-            m = re.search(r"""version\s*=\s*"(\d+)\.""", s.read())
-        self.assertIsNotNone(m, "version not found in setup.py")
-        v = int(m.group(1))
-        self.assertEqual(
-            v, self.VERSION, f"version in setup.py does not match test version, got {v}, want {self.VERSION}"
-        )
+    def test_semantic_version(self):
+        import pgsql
+
+        major = int(pgsql.VERSION.split('.')[0])
+        self.assertEqual(major, self.VERSION, "pgsql.VERSION does not match test version")
