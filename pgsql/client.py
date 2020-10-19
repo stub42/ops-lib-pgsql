@@ -99,15 +99,7 @@ class PostgreSQLRelationEvent(ops.charm.RelationEvent):
     def database(self, dbname: str) -> None:
         if dbname is None:
             dbname = ""
-        self.relation.data[self._local_unit.app]["database"] = dbname
-        # Deprecated, per PostgreSQLClient._mirror_appdata()
-        self.relation.data[self._local_unit]["database"] = dbname
-        # Inform our peers, since they can't read the appdata.
-        d = _get_pgsql_leader_data()
-        d.setdefault(self.relation.id, {})["database"] = dbname
-        _set_pgsql_leader_data(d)
-
-        self.log.debug("database set to %s on relation %s", dbname, self.relation.id)
+        _set_database(self.relation, dbname, self._local_unit, self.log)
 
     @property
     def roles(self) -> List[str]:
@@ -140,15 +132,7 @@ class PostgreSQLRelationEvent(ops.charm.RelationEvent):
     def roles(self, roles: Iterable[str]) -> None:
         if roles is None:
             roles = []
-        sroles = ",".join(sorted(roles))
-        self.relation.data[self._local_unit.app]["roles"] = sroles
-        # Deprecated, per PostgreSQLClient._mirror_appdata()
-        self.relation.data[self._local_unit]["roles"] = sroles
-        # Inform our peers, since they can't read the appdata
-        d = _get_pgsql_leader_data()
-        d.setdefault(self.relation.id, {})["roles"] = sroles
-        _set_pgsql_leader_data(d)
-        self.log.debug("roles set to %s on relation %s", sroles, self.relation.id)
+        _set_roles(self.relation, roles, self._local_unit, self.log)
 
     @property
     def extensions(self) -> List[str]:
@@ -175,15 +159,7 @@ class PostgreSQLRelationEvent(ops.charm.RelationEvent):
     def extensions(self, extensions: Iterable[str]) -> None:
         if extensions is None:
             extensions = []
-        sext = ",".join(sorted(extensions))
-        self.relation.data[self._local_unit.app]["extensions"] = sext
-        # Deprecated, per PostgreSQLClient._mirror_appdata()
-        self.relation.data[self._local_unit]["extensions"] = sext  # Deprecated, should be app reldata
-        # Inform our peers, since they can't read the appdata
-        d = _get_pgsql_leader_data()
-        d.setdefault(self.relation.id, {})["extensions"] = sext
-        _set_pgsql_leader_data(d)
-        self.log.debug("extensions set to %s on relation %s", sext, self.relation.id)
+        _set_extensions(self.relation, extensions, self._local_unit, self.log)
 
     @property
     def version(self) -> str:
@@ -328,7 +304,7 @@ class PostgreSQLClientEvents(ops.framework.ObjectEvents):
 
 
 class PostgreSQLClient(ops.framework.Object):
-    """Requires side of a PostgreSQL (pgsql) Endpoint"""
+    """Requires side of a PostgreSQL (pgsql) Endpoint."""
 
     on = PostgreSQLClientEvents()
     _state = ops.framework.StoredState()
@@ -342,7 +318,7 @@ class PostgreSQLClient(ops.framework.Object):
         self.relation_name = relation_name
         self.log = logging.getLogger("pgsql.client.{}".format(relation_name))
 
-        self._state.set_default(rels={})
+        self._state.set_default(rels={}, database=None, roles=[], extensions=[])
 
         self.framework.observe(charm.on[relation_name].relation_joined, self._on_joined)
         self.framework.observe(charm.on[relation_name].relation_changed, self._on_changed)
@@ -350,6 +326,74 @@ class PostgreSQLClient(ops.framework.Object):
         self.framework.observe(charm.on.upgrade_charm, self._on_upgrade_charm)
         self.framework.observe(charm.on.leader_elected, self._on_leader_change)
         self.framework.observe(charm.on.leader_settings_changed, self._on_leader_change)
+
+    @property
+    def database(self) -> str:
+        """Set the default database name to use with relations.
+
+        May only be set by the leader.
+
+        All relations with this relation name will be updated to use
+        the database name. Do not use this method if different
+        relations need different database names, and instead observe
+        on.database_joined and set the database name using the API
+        provided by the DatabaseRelationJoinedEvent.
+        """
+        return self._state.get("database") or None
+
+    @database.setter
+    def database(self, dbname: str) -> None:
+        if dbname is None:
+            dbname = ""
+        self._state.database = dbname
+        for relation in self.model.unit.relations[self.relation_name]:
+            _set_database(relation, dbname, self.model.unit)
+
+    @property
+    def roles(self) -> List[str]:
+        """Assign PostgreSQL roles to the application's database user.
+
+        May only be set by the leader.
+
+        All relations with this instance's relation name will be
+        updated to provide the roles. Do not use this method if
+        different relations need different roles set, and instead
+        observe on.database_joined and set the roles using the API
+        provided by the DatabaseRelationJoinedEvent.
+        """
+        return self._state.get("roles") or []
+
+    @roles.setter
+    def roles(self, roles: Iterable[str]) -> None:
+        if roles is None:
+            roles = []
+        roles = list(roles)
+        self._state.roles = roles
+        for relation in self.model.unit.relations[self.relation_name]:
+            _set_roles(relation, roles, self.model.unit, self.log)
+
+    @property
+    def extensions(self) -> List[str]:
+        """Ensure PostgreSQL extensions are installed into the database.
+
+        May only be set by the leader.
+
+        All relations with this instance's relation name will be
+        updated to provide the extensions. Do not use this method if
+        different relations need different extensions set, and instead
+        observe on.database_joined and set the roles using the API
+        provided by the DatabaseRelationJoinedEvent.
+        """
+        return self._state.get("extensions") or []
+
+    @extensions.setter
+    def extensions(self, extensions: Iterable[str]) -> None:
+        if extensions is None:
+            extensions = []
+        extensions = list(extensions)
+        self._state.extensions = extensions
+        for relation in self.model.unit.relations[self.relation_name]:
+            _set_extensions(relation, extensions, self.model.unit, self.log)
 
     def _db_event_args(self, relation_event: ops.charm.RelationEvent):
         return dict(
@@ -681,3 +725,38 @@ def _leader_get(attribute: str) -> str:
 def _leader_set(settings: Dict[str, str]):
     cmd = ["leader-set"] + ["{}={}".format(k, v or "") for k, v in settings.items()]
     subprocess.check_call(cmd)
+
+
+def _set_database(relation: Relation, dbname: str, local_unit: Unit, log: logging.Logger):
+    relation.data[local_unit.app]["database"] = dbname
+    # Deprecated, per PostgreSQLClient._mirror_appdata()
+    relation.data[local_unit]["database"] = dbname
+    # Inform our peers, since they can't read the appdata.
+    d = _get_pgsql_leader_data()
+    d.setdefault(relation.id, {})["database"] = dbname
+    _set_pgsql_leader_data(d)
+    log.debug("database set to %s on relation %s", dbname, relation.id)
+
+
+def _set_roles(relation: Relation, roles: Iterable[str], local_unit: Unit, log: logging.Logger):
+    sroles = ",".join(sorted(roles))
+    relation.data[local_unit.app]["roles"] = sroles
+    # Deprecated, per PostgreSQLClient._mirror_appdata()
+    relation.data[local_unit]["roles"] = sroles
+    # Inform our peers, since they can't read the appdata
+    d = _get_pgsql_leader_data()
+    d.setdefault(relation.id, {})["roles"] = sroles
+    _set_pgsql_leader_data(d)
+    log.debug("roles set to %s on relation %s", sroles, relation.id)
+
+
+def _set_extensions(relation: Relation, extensions: Iterable[str], local_unit: Unit, log: logging.Logger):
+    sext = ",".join(sorted(extensions))
+    relation.data[local_unit.app]["extensions"] = sext
+    # Deprecated, per PostgreSQLClient._mirror_appdata()
+    relation.data[local_unit]["extensions"] = sext  # Deprecated, should be app reldata
+    # Inform our peers, since they can't read the appdata
+    d = _get_pgsql_leader_data()
+    d.setdefault(relation.id, {})["extensions"] = sext
+    _set_pgsql_leader_data(d)
+    log.debug("extensions set to %s on relation %s", sext, relation.id)
