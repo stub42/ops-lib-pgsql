@@ -367,7 +367,6 @@ class PostgreSQLClient(ops.framework.Object):
         else:
             self.log.info("emitting database_relation_joined event for relation %r", event.relation.id)
             self.on.database_relation_joined.emit(**self._db_event_args(event))
-            self._state.rels[event.relation.id] = dict(master=None, standbys=None)
 
     def _on_changed(self, event: ops.charm.RelationEvent) -> None:
         self.log.debug("_on_changed for relation %r", event.relation.id)
@@ -377,8 +376,10 @@ class PostgreSQLClient(ops.framework.Object):
         rel = event.relation
         relid = rel.id
 
-        prev_master = self._state.rels.get(relid, {}).get("master", None)
-        prev_standbys = self._state.rels.get(relid, {}).get("standbys", []) or []
+        self._state.rels.setdefault(relid, dict(master=None, standbys=None))
+
+        prev_master = self._state.rels[relid]["master"]
+        prev_standbys = self._state.rels[relid]["standbys"] or []
         new_master = _master(self.log, rel, self.model.unit)
         new_standbys = _standbys(self.log, rel, self.model.unit)
 
